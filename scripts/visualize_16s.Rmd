@@ -27,8 +27,9 @@ phylum_colors <- c("Actinobacteriota" = "#B62A3D",
                    "Firmicutes_C" = "#EDCB66",
                    "Patescibacteria" = "#55506A",
                    "Planctomycetota" = "#6C6781",
-                   "Proteobacteria" = "#7496D2",
+                   "Proteobacteria" = "#003f5c",
                    "Verrucomicrobiota" = "#E6A2C5",
+                   "Myxococcota" = "#2f4b7c",
                    "<=1% Abundant/Unidentified" = "#C4CFD0")
 
 family_colors <- c("<=5% Abundant/Unidentified" = "#C4CFD0",
@@ -45,21 +46,17 @@ id_colors <- c("day_dentifera" = "#ffa600",
                "night_magna" = "#7a5195")
 ```
 
-Load data and remove Cyanobacteria reads
+Load data and remove Cyanobacteria reads, add clarity to Sample variable and add ID variable
 ```{r dataload}
 data <- readRDS(here("data", "processed_16s_all.rds")) %>% 
   subset_taxa(Phylum != "Cyanobacteria")
-```
 
-Creating a melted dataframe of the data, and renaming sample names for clarity.
-```{r melt}
-data_transformed <- transform_sample_counts(data, function(x) x/sum(x))
-melted <- psmelt(data_transformed) %>%
-  mutate(Sample = str_replace_all(Sample, "Plate", "")) %>%
-  mutate(id = paste0(time, "_", species)) %>%
-  select(-sample_Sample)
+data@sam_data$id <- c(rep("day_magna", 10), rep("night_magna", 10),
+                                  rep("night_dentifera", 9), rep("day_dentifera", 10))
 
-melted$Sample <- str_replace_all(melted$Sample, 
+data@sam_data$Sample <- str_replace_all(data@sam_data$Sample, "Plate", "")
+
+data@sam_data$Sample <- str_replace_all(data@sam_data$Sample , 
                                  c("13A01" = "DM_D1","13A02" = "DM_D2","13A03" = "DM_D3",
                                    "13A04" = "DM_D4","13A05" = "DM_D5","13A06" = "DM_D6",
                                    "13A07" = "DM_D7","13A08" = "DM_D8","13A09" = "DM_D9",
@@ -73,6 +70,16 @@ melted$Sample <- str_replace_all(melted$Sample,
                                    "13C01" = "DD_N1","13C02" = "DD_N2","13C03" = "DD_N3",
                                    "13C04" = "DD_N4","13C05" = "DD_N5","13C06" = "DD_N6",
                                    "13C07" = "DD_N7","13C08" = "DD_N8","13C09" = "DD_N9"))
+```
+
+Creating a melted dataframe of the data, and reducing low abundance reads for clarity.
+```{r melt}
+data_transformed <- transform_sample_counts(data, function(x) x/sum(x))
+
+melted <- psmelt(data_transformed) %>%
+  select(-Sample) 
+
+colnames(melted)[colnames(melted) == "sample_Sample"] <- "Sample"
 
 no_low_abundance <- melted
 no_low_abundance$Phylum[no_low_abundance$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
@@ -101,3 +108,29 @@ ggplot(no_low_abundance, aes(Sample, Abundance, fill = Family)) +
   xlab("Sample") +
   ylab("Relative abundance")
 ```
+
+Summarizing the consensus microbiota composition of each species at each time point.
+```{r consensus_composition}
+data_by_type <- merge_samples2(data, group = "id")
+
+dbtt <- transform_sample_counts(data_by_type, function(x) x/sum(x))
+
+type_melted <- psmelt(dbtt) %>%
+  select(-Sample, replicate, X)
+
+colnames(type_melted)[colnames(type_melted) == "sample_Sample"] <- "Sample"
+
+type_melted$Phylum[type_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
+type_melted$Phylum[is.na(type_melted$Phylum)] <- "<=1% Abundant/Unidentified"
+type_melted$Family[type_melted$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
+type_melted$Family[is.na(type_melted$Family)] <- "<=5% Abundant/Unidentified"
+
+ggplot(type_melted, aes(id, Abundance, fill = Family)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = family_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, vjust = 1),
+        strip.background = element_blank()) +
+  xlab("Sample") +
+  ylab("Relative abundance")
+```
+
