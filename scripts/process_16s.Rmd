@@ -1,0 +1,105 @@
+---
+title: "process_16s"
+author: "Reilly Cooper"
+date: "9/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dada2)
+library(here)
+library(DECIPHER)
+library(phangorn)
+library(phyloseq)
+```
+
+Loading data and metadata.
+```{r data_loading, warning=FALSE}
+read_loc <- here("data", "16s_data")
+metadata_loc <- here("data", "sample_metadata.csv")
+gtdb_loc <- here("data", "GTDB_bac120_arc122_ssu_r95.fa.gz")
+rdp_loc <- here("data", "RefSeq-RDP16S_v3_May2018.fa.gz")
+
+fnFs <- sort(list.files(read_loc, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(read_loc, pattern = "R2_001.fastq.gz", full.names = TRUE))
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+```
+
+Filtering and trimming reads.
+```{r filterandtrim}
+# Trimming parameters
+truncLen <- c(240, 160)
+maxN <- 0
+maxEE <- c(2, 30)
+truncQ <- 2
+
+filtFs <- file.path(here("data"), "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(here("data"), "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, 
+                     truncLen = truncLen, maxN = maxN, maxEE = maxEE, truncQ = truncQ,
+                     rm.phix = TRUE, compress = TRUE, multithread = TRUE)
+```
+
+Learning error rates.
+```{r errors}
+errF <- learnErrors(filtFs, multithread = TRUE, verbose = FALSE)
+errR <- learnErrors(filtRs, multithread = TRUE, verbose = FALSE)
+```
+
+Dereplicating datasets.
+```{r derep_dada}
+derepFs <- derepFastq(filtFs)
+derepRs <- derepFastq(filtRs)
+
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+```
+
+Running dada2 algorithm, then merging the output reads.
+```{r dada}
+dadaFs <- dada(derepFs, err = errF, multithread = TRUE, verbose = FALSE)
+dadaRs <- dada(derepRs, err = errR, multithread = TRUE, verbose = FALSE)
+
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose = FALSE)
+```
+
+Constructing sequence table and removing chimeras.
+```{r seqtab}
+seqtab <- makeSequenceTable(mergers)
+seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus", multithread = TRUE, verbose = FALSE)
+```
+
+Assigning taxonomy with GTDB.
+```{r taxonomy}
+taxonomy <- assignTaxonomy(seqtab.nochim, gtdb_loc, multithread = TRUE)
+```
+
+Constructing phylogenetic tree.
+```{r phylogeny}
+seqs <- getSequences(seqtab.nochim)
+names(seqs) <- seqs
+alignment <- AlignSeqs(DNAStringSet(seqs), anchor = NA, verbose = TRUE) # verbose = FALSE
+phangAlign <- phyDat(as(alignment, "matrix"), type = "DNA")
+dm <- dist.ml(phangAlign)
+treeNJ <- NJ(dm)
+fit <- pml(treeNJ, data = phangAlign)
+fitGTR <- update(fit, k = 4, inv = 0.2)
+```
+
+Creating and saving phyloseq objects. Here, I'm creating three objects:
+1: All data
+2: No mock community data
+3: Only mock community data
+```{r phyloseq}
+# Read in metadata
+samdata <- read.csv(metadata_loc)
+rownames(samdata) <- rownames(seqtab.nochim)
+
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
+               sample_data(samdata),
+               tax_table(taxonomy),
+               phy_tree(fitGTR$tree))
+
+saveRDS(ps, here("data", "processed_16s_all.rds"))
+```
+

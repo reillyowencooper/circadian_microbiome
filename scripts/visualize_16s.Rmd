@@ -1,0 +1,103 @@
+---
+title: "visualize_16s"
+author: "Reilly Cooper"
+date: "9/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(speedyseq)
+library(ggpubr)
+library(tidyverse)
+library(cowplot)
+library(rstatix)
+library(vegan)
+library(stringi)
+
+theme_set(theme_cowplot(font_size = 12))
+
+phylum_colors <- c("Actinobacteriota" = "#B62A3D",
+                   "Bacteroidota" = "#A35E60",
+                   "Deinococcota" = "#456355",
+                   "Dependentiae" = "#27223C",
+                   "Desulfobacterota" = "#CC8B3C",
+                   "Firmicutes" = "#EDCB64",
+                   "Firmicutes_A" = "#EDCB65",
+                   "Firmicutes_C" = "#EDCB66",
+                   "Patescibacteria" = "#55506A",
+                   "Planctomycetota" = "#6C6781",
+                   "Proteobacteria" = "#7496D2",
+                   "Verrucomicrobiota" = "#E6A2C5",
+                   "<=1% Abundant/Unidentified" = "#C4CFD0")
+
+family_colors <- c("<=5% Abundant/Unidentified" = "#C4CFD0",
+                   "Burkholderiaceae" = "#27223C",
+                   "Chitinophagaceae" = "#A35E60",
+                   "Flavobacteriaceae" = "#7496D2",
+                   "Nanopelagicaceae" = "#55506A",
+                   "Spirosomaceae" = "#E6A2C5",
+                   "Vicingaceae" = "#76A08A")
+
+id_colors <- c("day_dentifera" = "#ffa600",
+               "night_dentifera" = "#003f5c",
+               "day_magna" = "#ef5675",
+               "night_magna" = "#7a5195")
+```
+
+Load data and remove Cyanobacteria reads
+```{r dataload}
+data <- readRDS(here("data", "processed_16s_all.rds")) %>% 
+  subset_taxa(Phylum != "Cyanobacteria")
+```
+
+Creating a melted dataframe of the data, and renaming sample names for clarity.
+```{r melt}
+data_transformed <- transform_sample_counts(data, function(x) x/sum(x))
+melted <- psmelt(data_transformed) %>%
+  mutate(Sample = str_replace_all(Sample, "Plate", "")) %>%
+  mutate(id = paste0(time, "_", species)) %>%
+  select(-sample_Sample)
+
+melted$Sample <- str_replace_all(melted$Sample, 
+                                 c("13A01" = "DM_D1","13A02" = "DM_D2","13A03" = "DM_D3",
+                                   "13A04" = "DM_D4","13A05" = "DM_D5","13A06" = "DM_D6",
+                                   "13A07" = "DM_D7","13A08" = "DM_D8","13A09" = "DM_D9",
+                                   "13A10" = "DM_D10","13B01" = "DM_N1","13B02" = "DM_N2",
+                                   "13B03" = "DM_N3","13B04" = "DM_N4","13B05" = "DM_N5",
+                                   "13B06" = "DM_N6","13B07" = "DM_N7","13B08" = "DM_N8",
+                                   "13B09" = "DM_N9","13B10" = "DM_N10","13D01" = "DD_D1",
+                                   "13D02" = "DD_D2","13D03" = "DD_D3","13D04" = "DD_D4",
+                                   "13D05" = "DD_D5","13D06" = "DD_D6","13D07" = "DD_D7",
+                                   "13D08" = "DD_D8","13D09" = "DD_D9","13D10" = "DD_D10",
+                                   "13C01" = "DD_N1","13C02" = "DD_N2","13C03" = "DD_N3",
+                                   "13C04" = "DD_N4","13C05" = "DD_N5","13C06" = "DD_N6",
+                                   "13C07" = "DD_N7","13C08" = "DD_N8","13C09" = "DD_N9"))
+
+no_low_abundance <- melted
+no_low_abundance$Phylum[no_low_abundance$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
+no_low_abundance$Phylum[is.na(no_low_abundance$Phylum)] <- "<=1% Abundant/Unidentified"
+no_low_abundance$Family[no_low_abundance$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
+no_low_abundance$Family[is.na(no_low_abundance$Family)] <- "<=5% Abundant/Unidentified"
+```
+
+Just looking at composition
+```{r composition}
+ggplot(no_low_abundance, aes(Sample, Abundance, fill = Phylum)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ species*time, scales = "free") +
+  scale_fill_manual(values = phylum_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, vjust = 1),
+        strip.background = element_blank()) +
+  xlab("Sample") +
+  ylab("Relative abundance")
+
+ggplot(no_low_abundance, aes(Sample, Abundance, fill = Family)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ species*time, scales = "free") +
+  scale_fill_manual(values = family_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, vjust = 1),
+        strip.background = element_blank()) +
+  xlab("Sample") +
+  ylab("Relative abundance")
+```
