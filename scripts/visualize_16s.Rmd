@@ -14,6 +14,9 @@ library(cowplot)
 library(rstatix)
 library(vegan)
 library(stringi)
+library(DivNet)
+library(parallel)
+library(microbiome)
 
 theme_set(theme_cowplot(font_size = 12))
 
@@ -40,10 +43,14 @@ family_colors <- c("<=5% Abundant/Unidentified" = "#C4CFD0",
                    "Spirosomaceae" = "#E6A2C5",
                    "Vicingaceae" = "#76A08A")
 
-id_colors <- c("day_dentifera" = "#ffa600",
-               "night_dentifera" = "#003f5c",
-               "day_magna" = "#ef5675",
-               "night_magna" = "#7a5195")
+id_colors <- c("day_dentifera" = "#76A08A",
+               "night_dentifera" = "#27223C",
+               "day_magna" = "#E6A2C5",
+               "night_magna" = "#A35E60")
+
+species_colors <- c("dentifera" = "#76A08A",
+                    "magna" = "#E6A2C5")
+
 ```
 
 Load data and remove Cyanobacteria reads, add clarity to Sample variable and add ID variable
@@ -107,6 +114,17 @@ ggplot(no_low_abundance, aes(Sample, Abundance, fill = Family)) +
         strip.background = element_blank()) +
   xlab("Sample") +
   ylab("Relative abundance")
+
+spp <- no_low_abundance %>%
+  filter(!is.na(Genus) & Abundance > 0.001)
+ggplot(spp, aes(Sample, Abundance, fill = Genus)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ species*time, scales = "free") +
+  #scale_fill_manual(values = family_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, vjust = 1),
+        strip.background = element_blank()) +
+  xlab("Sample") +
+  ylab("Relative abundance")
 ```
 
 Summarizing the consensus microbiota composition of each species at each time point.
@@ -132,5 +150,187 @@ ggplot(type_melted, aes(id, Abundance, fill = Family)) +
         strip.background = element_blank()) +
   xlab("Sample") +
   ylab("Relative abundance")
+
+type_melted %>%
+  filter(Abundance > 0.0001) %>%
+  filter(!is.na(Genus)) %>%
+  ggplot(aes(id, Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  #scale_fill_manual(values = family_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, vjust = 1),
+        strip.background = element_blank()) +
+  xlab("Sample") +
+  ylab("Relative abundance")
+```
+
+Checking alpha diversity using DivNet instead of standard phyloseq alpha diversity measures. DivNet provides more accurate measures of diversity by accounting for unobserved taxa and random sampling from a larger community.
+```{r divnet_alphadiv}
+dv_data <- divnet(data, ncores = 4)
+data@sam_data
+
+dv_data$shannon %>%
+  summary %>%
+  add_column("Sample" = data %>% sample_data %>% get_variable("Sample"))
+  
+dv_data$simpson %>%
+  summary %>%
+  add_column("Sample" = data %>% sample_data %>% get_variable("Sample"))
+
+data_shannon <- dv_data$shannon %>% summary %>% select(sample_names, estimate) %>%
+  mutate(id = data@sam_data$id) %>%
+  mutate(species = data@sam_data$species) %>%
+  mutate(time = data@sam_data$time)
+data_simpson <- dv_data$simpson %>% summary %>% select(sample_names, estimate) %>%
+  mutate(id = data@sam_data$id) %>%
+  mutate(species = data@sam_data$species) %>%
+  mutate(time = data@sam_data$time)
+
+data_shannon$id <- factor(data_shannon$id, 
+                          levels = c("day_dentifera", 
+                                     "night_dentifera", 
+                                     "day_magna", 
+                                     "night_magna"))
+
+data_simpson$id <- factor(data_shannon$id, 
+                          levels = c("day_dentifera", 
+                                     "night_dentifera", 
+                                     "day_magna", 
+                                     "night_magna"))
+
+shannon_plot <- ggplot(data_shannon, aes(id, estimate, group = id, color = id)) + 
+  geom_violin(lwd = 1) + 
+  geom_jitter(height = 0, width = 0.05, alpha = 0.5, size = 2) +
+  scale_color_manual(values = id_colors) +
+  ylab("Shannon Index Estimate") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  scale_x_discrete(labels = c("D. dentifera, \n day",
+                             "D. dentifera, \n night",
+                             "D. magna, \n day",
+                             "D. magna, \n night")) +
+  stat_compare_means(method = "anova", label.y = 1.55)
+
+simpson_plot <- ggplot(data_simpson, aes(id, 1/estimate, group = id, color = id)) + 
+  geom_violin(lwd = 1) + 
+  geom_jitter(height = 0, width = 0.05, alpha = 0.5, size = 2) +
+  scale_color_manual(values = id_colors) +
+  ylab("Inverse Simspon Index Estimate") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  scale_x_discrete(labels = c("D. dentifera, \n day",
+                             "D. dentifera, \n night",
+                             "D. magna, \n day",
+                             "D. magna, \n night")) +
+  stat_compare_means(method = "anova", label.y = 5)
+
+plot_grid(shannon_plot, simpson_plot, nrow = 1)
+```
+
+Differences between species, regardless of day or night. This is a four panel figure:
+a) Alpha diversity measures
+b) Genus-level composition
+d) Beta diversity measure, weighted UniFrac PCoA
+```{r mag_v_dent}
+species_comp_data <- merge_samples2(data, group = "species")
+
+scdt <- transform_sample_counts(species_comp_data, function(x) x/sum(x))
+
+species_melted <- psmelt(scdt) %>%
+  select(-Sample, replicate, X)
+
+colnames(species_melted)[colnames(species_melted) == "sample_Sample"] <- "Sample"
+
+species_melted$Phylum[species_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
+species_melted$Phylum[is.na(species_melted$Phylum)] <- "<=1% Abundant/Unidentified"
+species_melted$Family[species_melted$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
+species_melted$Family[is.na(species_melted$Family)] <- "<=5% Abundant/Unidentified"
+species_melted$Genus[species_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
+species_melted$Genus[is.na(species_melted$Genus)] <- "<=1% Abundant/Unidentified"
+
+species_melted$species <- factor(species_melted$species, levels = c("magna", "dentifera"))
+data_simpson$species <- factor(data_simpson$species, levels = c("magna", "dentifera"))
+genus_colors <- c("<=1% Abundant/Unidentified" = "#C4CFD0",
+                  "Acidovorax_D" = "#A35E60",
+                  "Arcticibacterium" = "#456355",
+                  "BRH-c54" = "#76A08A",
+                  "Emticicia" = "#CC8B3C",
+                  "Flavobacterium" = "#7496D2",
+                  "Fluviicola" = "#55506A",
+                  "Hydromonas" = "#6C6781",
+                  "Hylemonella" = "#003f5c",
+                  "Lacibacter" = "#E6A2C5",
+                  "Limnobacter" = "#2f4b7c",
+                  "Limnohabitans" = "#27223C",
+                  "Nevskia" = "#EDCB64",
+                  "Planktophila" = "#541F12",
+                  "Polynucleobacter" = "#E8D2B9",
+                  "Vitreoscilla_A" = "#AEA8A8")
+
+
+species_composition_plot <- ggplot(species_melted, aes(species, Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = genus_colors) +
+  theme(axis.title.x = element_blank()) +
+  ylab("Relative abundance") +
+  scale_x_discrete(labels = c("Daphnia\nmagna",
+                              "Daphnia\ndentifera"))
+
+species_alphadiv_plot <- ggplot(data_simpson, aes(species, 1/estimate, group = species, color = species)) + 
+  geom_violin(lwd = 1, width = .5) + 
+  geom_jitter(height = 0, width = 0.05, alpha = 0.5, size = 2) +
+  scale_color_manual(values = species_colors) +
+  ylab("Inverse Simpson Index Estimate") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  scale_x_discrete(labels = c("Daphnia\nmagna",
+                              "Daphnia\ndentifera")) +
+  stat_compare_means(method = "t.test", label.y = 15, label.x = 0.75, label = "p.format")
+
+
+wuniord <- ordinate(data, "PCoA", "unifrac", weighted = TRUE)
+data.rel <- microbiome::transform(data, "compositional")
+data.otu <- microbiome::abundances(data.rel)
+data.meta <- microbiome::meta(data.rel)
+data.unifrac <- UniFrac(data.rel,
+                        weighted = TRUE,
+                        normalized = TRUE,
+                        parallel = FALSE,
+                        fast = TRUE)
+data.permanova <- adonis(data.unifrac ~ species, data = data.meta)
+
+label <- paste("~italic(R)^2==~", round(data.permanova$aov.tab$R2[1], digits = 3))
+p <- paste("~italic(P)==~", round(data.permanova$aov.tab$`Pr(>F)`[1], digits = 3))
+
+
+w_ord_plot <- plot_ordination(data, wuniord, color = "species") +
+  geom_point(size = 2) +
+  scale_color_manual(values = species_colors) +
+  stat_ellipse(linetype = 2) +
+  annotate("text", x = 0, y = -0.075, label = label, parse = TRUE, size = 3.5) +
+  annotate("text", x = 0, y = -0.085, label = p, parse = TRUE, size = 3.5)
+
+w_ord_plot
+
+figure_one <- plot_grid(plot_grid(species_alphadiv_plot, 
+                                  species_composition_plot, 
+                                  nrow = 1, 
+                                  labels = c("a", "b"),
+                                  rel_widths = c(0.5, .75), align = "h"),
+                        plot_grid(NULL, 
+                                  w_ord_plot, 
+                                  NULL, 
+                                  nrow = 1, 
+                                  rel_widths = c(.25, .5, .25), 
+                                  labels = c("", "c", "")), 
+                        nrow = 2, 
+                        align = "hv")
+
+ggsave(here("figures", "figure_one.pdf"), 
+       figure_one, 
+       units = "in", 
+       width = 8, 
+       height = 8, 
+       dpi = 300, 
+       useDingbats = FALSE)
 ```
 
