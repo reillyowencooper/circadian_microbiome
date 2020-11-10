@@ -56,7 +56,10 @@ genus_colors <- c("<=1% Abundant/Unidentified" = "#C4CFD0",
                   "Lacibacter" = "#E6A2C5",
                   "Limnobacter" = "#2f4b7c",
                   "Limnohabitans" = "#27223C",
+                  "Methylophilus" = "#a1cacc",
+                  "Methylotenera" = "#364362",
                   "Nevskia" = "#EDCB64",
+                  "OLB11" = "#115189",
                   "Planktophila" = "#541F12",
                   "Polynucleobacter" = "#E8D2B9",
                   "Vitreoscilla_A" = "#AEA8A8")
@@ -145,6 +148,7 @@ data_simpson$id <- factor(data_shannon$id,
                                      "night_dentifera", 
                                      "day_magna", 
                                      "night_magna"))
+
 ```
 
 Figure 1.
@@ -238,14 +242,13 @@ ggsave(here("figures", "figure_one.pdf"),
 
 Day vs. night differences in both Daphnia species. 
 ```{r day_night, warning=FALSE}
-data_by_sp_time <- merge_samples2(data, group = "id")
-
+data_by_sp_time <- data
 transformed_sp_time <- transform_sample_counts(data_by_sp_time, function(x) x/sum(x))
 
 sp_time_melted <- psmelt(transformed_sp_time) %>%
-  select(-c(Sample, replicate, X))
+  select(-c(replicate, X))
 
-colnames(sp_time_melted)[colnames(sp_time_melted) == "sample_Sample"] <- "Sample"
+
 
 sp_time_melted$Phylum[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
 sp_time_melted$Phylum[is.na(sp_time_melted$Phylum)] <- "<=1% Abundant/Unidentified"
@@ -274,27 +277,46 @@ time_alphadiv_plot <- ggplot(data_simpson, aes(id, 1/estimate, group = id, color
                               "Daphnia\nmagna,\nnight",
                               "Daphnia\ndentifera,\nday",
                               "Daphnia\ndentifera,\nnight")) +
-  stat_compare_means(comparisons = comparisons, label.y = c(19, 19)) +
+  stat_compare_means(comparisons = comparisons, label.y = c(19, 19), size = 4) +
   stat_compare_means(method = "anova", label.y = 15) +
   ylab("Inverse Simpson Index Estimate")
-# Composition, family level
-sp_time_melted$id <- factor(sp_time_melted$id, 
-                            levels = c("day_magna", 
-                                       "night_magna", 
-                                       "day_dentifera", 
-                                       "night_dentifera"))
 
-time_composition_plot <- ggplot(sp_time_melted, aes(id, Abundance, fill = Family)) +
+# Composition, genus level
+sp_time_melted %>% mutate(identifier = ifelse(time == "day" & species == "magna", "Daphnia\nmagna,\nday", 
+                                              ifelse(time == "day" & species == "dentifera", "Daphnia\ndentifera,\nday", 
+                                                     ifelse(time == "night" & species == "magna", "Daphnia\nmagna,\nnight", "Daphnia\ndentifera,\nnight")))) -> sp_time_melted
+
+sp_time_melted$identifier <- factor(sp_time_melted$identifier, levels = c("Daphnia\nmagna,\nday", "Daphnia\nmagna,\nnight",
+                                                                          "Daphnia\ndentifera,\nday", "Daphnia\ndentifera,\nnight"))
+time_composition_plot <- ggplot(sp_time_melted, aes(Sample, Abundance, fill = Genus)) +
   geom_bar(stat = "identity", position = "stack") +
-  scale_fill_manual(values = family_colors) +
+  scale_fill_manual(values = genus_colors) +
   theme(axis.title.x = element_blank(),
-        axis.text.x = element_text(size = 8),) +
+        axis.text.x = element_blank(),
+        strip.background = element_blank(),
+        strip.placement = "outside", 
+        strip.text.x = element_text(size = 8)) +
   ylab("Relative abundance") +
-  scale_x_discrete(labels = c("Daphnia\nmagna,\nday",
-                              "Daphnia\nmagna,\nnight",
-                              "Daphnia\ndentifera,\nday",
-                              "Daphnia\ndentifera,\nnight")) 
+  facet_wrap(~identifier, scales = "free_x", ncol = 4, strip.position = "bottom")
 
+figure_two <- plot_grid(time_alphadiv_plot, 
+                    time_composition_plot, 
+                    nrow = 1, rel_widths = c(0.5, 1),
+                    align = "hv", labels = "auto")
+
+ggsave(here("figures", "figure_two.pdf"), 
+       figure_two, 
+       units = "in", 
+       width = 8, 
+       height = 4, 
+       dpi = 300, 
+       useDingbats = FALSE)
+
+# Will fix "Genus" and Anova value overlap in Illustrator
+```
+
+Figure 3: Genera of interest
+```{r}
 # Specific genera
 sp_time_melted <- melted
 colnames(sp_time_melted)[colnames(sp_time_melted) == "sample_Sample"] <- "Sample"
@@ -315,33 +337,27 @@ genus_abundance_plot <- sp_time_melted %>%
   geom_boxplot(outlier.shape = NA) + 
   geom_jitter(position = position_jitterdodge(), alpha = 0.5) +
   scale_color_manual(values = id_colors, 
-                     labels = c("Daphnia magna, day",
-                                "Daphnia magna, night",
-                                "Daphnia dentifera, day",
-                                "Daphnia dentifera, night"),
-                     name = "Genus & Time") +
+                     labels = c("Daphnia magna,\nday",
+                                "Daphnia magna,\nnight",
+                                "Daphnia dentifera,\nday",
+                                "Daphnia dentifera,\nnight"),
+                     name = "") +
   theme(axis.text.x = element_blank(),
         axis.title.x = element_blank(),
-        strip.background = element_blank()) +
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8)) +
   ylab("Genus Relative Abundance") +
   facet_wrap(~ Genus, scales = "free", nrow = 2)
 
-
-figure_two <- plot_grid(plot_grid(time_alphadiv_plot, 
-                    time_composition_plot, 
-                    nrow = 1, rel_widths = c(0.5, 0.8), labels = "auto"),
-          genus_abundance_plot,
-          nrow = 2, labels = c("", "c"), rel_heights = c(.75, 1))
-
-
-ggsave(here("figures", "figure_two.pdf"), 
-       figure_two, 
+ggsave(here("figures", "figure_three.pdf"), 
+       genus_abundance_plot, 
        units = "in", 
-       width = 8, 
-       height = 8, 
+       width = 6, 
+       height = 6, 
        dpi = 300, 
        useDingbats = FALSE)
 ```
+
 
 Identifying core microbiota between host species.
 ```{r core, warning=FALSE}
@@ -420,4 +436,5 @@ core_table_ordered <- core_table %>%
 gtsave(core_table_ordered, here("figures", "table_one.pdf"))
 
 ```
+
 
