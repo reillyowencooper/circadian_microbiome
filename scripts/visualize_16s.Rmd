@@ -315,49 +315,6 @@ ggsave(here("figures", "figure_two.pdf"),
 # Will fix "Genus" and Anova value overlap in Illustrator
 ```
 
-Figure 3: Genera of interest
-```{r}
-# Specific genera
-sp_time_melted <- melted
-colnames(sp_time_melted)[colnames(sp_time_melted) == "sample_Sample"] <- "Sample"
-sp_time_melted$Family[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Family[is.na(sp_time_melted$Family)] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Genus[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Genus[is.na(sp_time_melted$Genus)] <- "<=1% Abundant/Unidentified"
-sp_time_melted$id <- factor(sp_time_melted$id, 
-                            levels = c("day_magna", 
-                                       "night_magna", 
-                                       "day_dentifera", 
-                                       "night_dentifera"))
-genus <- c("Emticicia", "Fluviicola", "Hydromonas", "Limnohabitans", "Polynucleobacter", "Articibacterium", "Planktophila")
-
-genus_abundance_plot <- sp_time_melted %>% 
-  filter(Genus %in% genus) %>%
-  ggplot(aes(id, Abundance, color = id)) + 
-  geom_boxplot(outlier.shape = NA) + 
-  geom_jitter(position = position_jitterdodge(), alpha = 0.5) +
-  scale_color_manual(values = id_colors, 
-                     labels = c("Daphnia magna,\nday",
-                                "Daphnia magna,\nnight",
-                                "Daphnia dentifera,\nday",
-                                "Daphnia dentifera,\nnight"),
-                     name = "") +
-  theme(axis.text.x = element_blank(),
-        axis.title.x = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_text(size = 8)) +
-  ylab("Genus Relative Abundance") +
-  facet_wrap(~ Genus, scales = "free", nrow = 2)
-
-ggsave(here("figures", "figure_three.pdf"), 
-       genus_abundance_plot, 
-       units = "in", 
-       width = 6, 
-       height = 6, 
-       dpi = 300, 
-       useDingbats = FALSE)
-```
-
 
 Identifying core microbiota between host species.
 ```{r core, warning=FALSE}
@@ -437,4 +394,131 @@ gtsave(core_table_ordered, here("figures", "table_one.pdf"))
 
 ```
 
+Table and figure 3: Taxa with abundance > 0.005 that are in only Daphnia dentifera OR only in Daphnia magna, OR both at time points
+```{r}
+merged_by_id <- merge_samples2(data, "id")
+
+comp_id <- transform_sample_counts(merged_by_id, function(x) x/sum(x))
+
+comp_id_melted <- psmelt(comp_id)
+
+abund <- comp_id_melted %>% filter(Abundance > 0.005)
+
+day_mag <- abund %>% filter(Sample == "day_magna") %>% select(OTU)
+night_mag <- abund %>% filter(Sample == "night_magna") %>% select(OTU)
+day_dent <- abund %>% filter(Sample == "day_dentifera") %>% select(OTU)
+night_dent <- abund %>% filter(Sample == "night_dentifera") %>% select(OTU)
+
+magna <- rbind(day_mag, night_mag)
+dentifera <- rbind(day_dent, night_dent)
+
+magna_otus <- magna %>% select(OTU) %>% unique()
+dentifera_otus <- dentifera %>% select(OTU) %>% unique()
+
+magna_only <- setdiff(magna_otus, dentifera_otus)
+dentifera_only <- setdiff(dentifera_otus, magna_otus)
+
+magna_only <- magna_only %>% mutate(location = "magna")
+magna_otus <- merge(magna_otus, magna_only, by = "OTU", all.x = TRUE) %>% 
+  mutate(location = ifelse(is.na(location), "both", location))
+
+dentifera_only <- dentifera_only %>% mutate(location = "dentifera")
+dentifera_otus <- merge(dentifera_otus, dentifera_only, by = "OTU")
+
+all_otus <- rbind(magna_otus, dentifera_otus)
+
+abund <- merge(abund, all_otus, by = "OTU", all.x = TRUE)
+
+important_otus <- melted %>% filter(OTU %in% abund$OTU)
+
+important_otus <- merge(important_otus, all_otus, by = "OTU", all.x = TRUE)
+
+# Adding ASV identifiers for ASVs in genera present in both, but specific ASV only present in one or the other
+important_otus <- important_otus %>% mutate(Genus = ifelse(is.na(Genus), Family, Genus)) %>%
+  mutate(Genus = ifelse(is.na(Genus), Order, Genus)) %>%
+  mutate(plotted_genus = Genus) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Limnohabitans" & location == "dentifera", paste0(plotted_genus, " ASV 1"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Limnohabitans" & location == "magna", paste0(plotted_genus, " ASV 2"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Limnohabitans" & location == "both", paste0(plotted_genus, " ASV 3"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Burkholderiaceae" & location == "dentifera", paste0(plotted_genus, " ASV 1"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Burkholderiaceae" & location == "magna", paste0(plotted_genus, " ASV 2"), plotted_genus))
+
+dent_otus_allsamples <- important_otus %>% filter(location == "dentifera") %>% filter(species == "dentifera")
+mag_otus_allsamples <- important_otus %>% filter(location == "magna") %>% filter(species == "magna")
+
+dent_otus_meanabund <- dent_otus_allsamples %>% group_by(plotted_genus) %>% summarise(mean_abund = mean(Abundance)) %>% arrange(mean_abund)
+dent_levels <- as.list(dent_otus_meanabund$plotted_genus)
+dent_otus_allsamples$plotted_genus <- factor(dent_otus_allsamples$plotted_genus, levels = dent_levels)
+
+mag_otus_meanabund <- mag_otus_allsamples %>% group_by(plotted_genus) %>% summarise(mean_abund = mean(Abundance)) %>% arrange(mean_abund)
+mag_levels <- as.list(mag_otus_meanabund$plotted_genus)
+mag_otus_allsamples$plotted_genus <- factor(mag_otus_allsamples$plotted_genus, levels = mag_levels)
+
+dent_only_plot <- ggplot(dent_otus_allsamples, aes(plotted_genus, Abundance, color = id)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(alpha = 0.5, position = position_jitterdodge()) + 
+  scale_color_manual(values = id_colors, 
+                     labels = c("Daphnia dentifera,\nday",
+                                "Daphnia dentifera,\nnight"),
+                     name = "") +
+  theme(axis.title.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8), 
+        legend.position = "none") +
+  ylab("Genus Relative Abundance") +
+  stat_compare_means(aes(label = ..p.signif..)) +
+  coord_flip()
+
+mag_only_plot <- ggplot(mag_otus_allsamples, aes(plotted_genus, Abundance, color = id)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(alpha = 0.5, position = position_jitterdodge()) + 
+  scale_color_manual(values = id_colors, 
+                     labels = c("Daphnia magna,\nday",
+                                "Daphnia magna,\nnight"),
+                     name = "") +
+  theme(axis.title.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8), 
+        legend.position = "none") +
+  ylab("Genus Relative Abundance") +
+  stat_compare_means(aes(label = ..p.signif..)) +
+  coord_flip()
+
+both_otus_allsamples <- important_otus %>% filter(location == "both")
+both_otus_meanabund <- both_otus_allsamples %>% group_by(plotted_genus) %>% summarise(mean_abund = mean(Abundance)) %>% arrange(mean_abund)
+both_levels <- as.list(both_otus_meanabund$plotted_genus)
+both_otus_allsamples$plotted_genus <- factor(both_otus_allsamples$plotted_genus, levels = both_levels)
+
+both_only_plot <- ggplot(both_otus_allsamples, aes(plotted_genus, Abundance, color = id)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(alpha = 0.5, position = position_jitterdodge()) + 
+  scale_color_manual(values = id_colors, 
+                     labels = c("Daphnia dentifera,\nday",
+                                "Daphnia dentifera,\nnight",
+                                "Daphnia magna,\nday",
+                                "Daphnia magna,\nnight"),
+                     name = "") +
+  theme(axis.title.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8)) +
+  ylab("Genus Relative Abundance") +
+  stat_compare_means(method = "anova", aes(label = ..p.signif..)) +
+  coord_flip()
+
+
+species_specific <- plot_grid(mag_only_plot, dent_only_plot, labels = "auto", align = "h")
+both_with_blankspace <- plot_grid(NULL, both_only_plot, NULL, rel_widths = c(.25, 1, .1), labels = c("", "c", ""), nrow = 1)
+
+complete_asv_plot <- plot_grid(species_specific, both_with_blankspace, nrow = 2)
+
+ggsave(here("figures", "figure_three_revamped.pdf"), 
+       complete_asv_plot, 
+       units = "in", 
+       width = 8, 
+       height = 8, 
+       dpi = 300, 
+       useDingbats = FALSE)
+
+# TODO: Making output table
+```
 
