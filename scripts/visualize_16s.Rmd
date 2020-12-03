@@ -118,7 +118,6 @@ no_low_abundance$Family[is.na(no_low_abundance$Family)] <- "<=5% Abundant/Uniden
 Checking alpha diversity using DivNet instead of standard phyloseq alpha diversity measures. DivNet provides more accurate measures of diversity by accounting for unobserved taxa and random sampling from a larger community.
 ```{r divnet_alphadiv}
 dv_data <- divnet(data, ncores = 4)
-data@sam_data
 
 dv_data$shannon %>%
   summary %>%
@@ -238,6 +237,13 @@ ggsave(here("figures", "figure_one.pdf"),
        height = 8, 
        dpi = 300, 
        useDingbats = FALSE)
+
+# Alpha diversity statistics (t-test) for host species
+data_simpson <- data_simpson %>% mutate(invsimpson = 1/estimate)
+data_simpson %>% t_test(invsimpson ~ species) %>% write_csv(here("statistics", "species_alphadiv_ttest.csv"))
+
+# Beta diversity statistics (PERMANOVA) for host species
+data.permanova
 ```
 
 Day vs. night differences in both Daphnia species. 
@@ -258,13 +264,25 @@ sp_time_melted$Genus[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unident
 sp_time_melted$Genus[is.na(sp_time_melted$Genus)] <- "<=1% Abundant/Unidentified"
 
 # Alpha diversity
+
+# ANOVA and t-tests for differences among species and times for alpha diversity
+time_spp_aov <- aov(invsimpson ~ species*time, data = data_simpson)
+summary(time_spp_aov)
+
+time_spp_tukeyhsd <- time_spp_aov %>% tukey_hsd()
+time_spp_tukeyhsd %>% write_csv(here("statistics", "species_time_tukeyhsd.csv"))
+comparisons <- time_spp_tukeyhsd %>% 
+  filter((group1 == "magna:day" & group2 == "magna:night") | (group1 == "dentifera:day" & group2 == "dentifera:night")) %>%
+  mutate(group1 = gsub("magna:day", "day_magna", group1),
+         group1 = gsub("dentifera:day", "day_dentifera", group1),
+         group2 = gsub("magna:night", "night_magna", group2),
+         group2 = gsub("dentifera:night", "night_dentifera", group2))
+
 data_simpson$id <- factor(data_simpson$id, 
                           levels = c("day_magna", 
                                      "night_magna", 
                                      "day_dentifera", 
                                      "night_dentifera"))
-comparisons <- list(c("day_magna", "night_magna"), 
-                    c("day_dentifera", "night_dentifera"))
 
 time_alphadiv_plot <- ggplot(data_simpson, aes(id, 1/estimate, group = id, color = id)) + 
   geom_violin() +
@@ -277,8 +295,8 @@ time_alphadiv_plot <- ggplot(data_simpson, aes(id, 1/estimate, group = id, color
                               "Daphnia\nmagna,\nnight",
                               "Daphnia\ndentifera,\nday",
                               "Daphnia\ndentifera,\nnight")) +
-  stat_compare_means(comparisons = comparisons, label.y = c(19, 19), size = 4) +
-  stat_compare_means(method = "anova", label.y = 15) +
+  annotate("text", x = 1, y = 15, label = "Anova, p < 2e-16") +
+  stat_pvalue_manual(comparisons, label = "p.adj", y.position = c(18, 18)) +
   ylab("Inverse Simpson Index Estimate")
 
 # Composition, genus level
@@ -313,6 +331,8 @@ ggsave(here("figures", "figure_two.pdf"),
        useDingbats = FALSE)
 
 # Will fix "Genus" and Anova value overlap in Illustrator
+
+
 ```
 
 
@@ -520,5 +540,50 @@ ggsave(here("figures", "figure_three_revamped.pdf"),
        useDingbats = FALSE)
 
 # TODO: Making output table
+mag_otus_bygenus <- split(mag_otus_allsamples, f = mag_otus_allsamples$plotted_genus)
+
+mag_ttests <- lapply(mag_otus_bygenus, function(df){
+  res <- t_test(Abundance ~ id, data = df)
+  res <- mutate(res, species = "magna")
+  res
+})
+
+mag_ttest_results <- plyr::ldply(mag_ttests, data.frame)
+
+dent_otus_bygenus <- split(dent_otus_allsamples, f = dent_otus_allsamples$plotted_genus)
+
+dent_ttests <- lapply(dent_otus_bygenus, function(df){
+  res <- t_test(Abundance ~ id, data = df)
+  res <- mutate(res, species = "dentifera")
+  res
+})
+
+dent_ttest_results <- plyr::ldply(dent_ttests, data.frame)
+
+
+
+all_ttests <- rbind(mag_ttest_results, dent_ttest_results)
+# Prettifying
+pretty_all_ttests <- all_ttests %>% select(.id, statistic, df, p, species)
+colnames(pretty_all_ttests) <- c("genus", "statistic", "df", "p", "species")
+pretty_all_ttests %>%
+  gt(rowname_col = "genus") %>%
+  tab_row_group(
+    group = "Daphnia magna",
+    rows = species == "magna"
+  ) %>%
+  tab_row_group(
+    group = "Daphnia dentifera",
+    rows = species == "dentifera"
+  ) %>%
+  cols_hide(
+    columns = vars(species)
+  ) %>%
+  cols_label(
+    statistic = "Statistic",
+    df = "Df",
+    p = html("<i>p</i>")
+  ) %>%
+  gtsave(here("statistics", "bacteria_genus_ttests.pdf"))
 ```
 

@@ -1,0 +1,5 @@
+﻿Factor,Df,Sum Sq,Mean Sq,F value,Pr(>F)
+Host Species,1,665.7,665.7,223.722,<2e-16
+Time,1,17.9,17.9,6.004,1.94E-02
+Host Species:Time,1,4.9,4.9,1.63,0.2101
+Residuals,35,104.1,3,,

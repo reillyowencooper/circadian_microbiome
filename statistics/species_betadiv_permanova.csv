@@ -1,0 +1,4 @@
+﻿Factor,Df,SumOfSqs,MeanSqs,F.Model,R2,Pr(>F)
+Host Species,1,0.39012,0.39012,124.47,0.77085,0.001
+Residuals,37,0.11597,0.00313,,0.22915,
+Total,38,0.50609,,,1,
