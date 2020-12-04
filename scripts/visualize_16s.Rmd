@@ -45,12 +45,16 @@ family_colors <- c("<=5% Abundant/Unidentified" = "#C4CFD0",
                    "Vicingaceae" = "#76A08A")
 
 genus_colors <- c("<=1% Abundant/Unidentified" = "#C4CFD0",
+                  "<=5% Abundant/Unidentified" = "#C4CFD0",
                   "Acidovorax_D" = "#A35E60",
+                  "Aquabacterium" = "#F0D9EC",
                   "Arcticibacterium" = "#456355",
                   "BRH-c54" = "#76A08A",
+                  "Cypionkella" = "#F3E0E4",
                   "Emticicia" = "#CC8B3C",
                   "Flavobacterium" = "#7496D2",
                   "Fluviicola" = "#55506A",
+                  "HdN1" = "#A4D5C3",
                   "Hydromonas" = "#6C6781",
                   "Hylemonella" = "#003f5c",
                   "Lacibacter" = "#E6A2C5",
@@ -62,6 +66,8 @@ genus_colors <- c("<=1% Abundant/Unidentified" = "#C4CFD0",
                   "OLB11" = "#115189",
                   "Planktophila" = "#541F12",
                   "Polynucleobacter" = "#E8D2B9",
+                  "Rubritalea" = "#B3ED99",
+                  "Runella" = "#EAFDB4",
                   "Vitreoscilla_A" = "#AEA8A8")
 
 id_colors <- c("day_dentifera" = "#76A08A",
@@ -148,6 +154,10 @@ data_simpson$id <- factor(data_shannon$id,
                                      "day_magna", 
                                      "night_magna"))
 
+magnasimp <- data_simpson %>% filter(species == "magna") %>% mutate(invsimp = 1/estimate)
+dentsimp <- data_simpson %>% filter(species == "dentifera") %>% mutate(invsimp = 1/estimate)
+
+mean(dentsimp$invsimp)
 ```
 
 Figure 1.
@@ -165,12 +175,19 @@ species_melted <- psmelt(scdt) %>%
 
 colnames(species_melted)[colnames(species_melted) == "sample_Sample"] <- "Sample"
 
-species_melted$Phylum[species_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-species_melted$Phylum[is.na(species_melted$Phylum)] <- "<=1% Abundant/Unidentified"
-species_melted$Family[species_melted$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
-species_melted$Family[is.na(species_melted$Family)] <- "<=5% Abundant/Unidentified"
-species_melted$Genus[species_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-species_melted$Genus[is.na(species_melted$Genus)] <- "<=1% Abundant/Unidentified"
+species_phylumsummary <- species_melted %>% group_by(Phylum) %>% summarise(phylum_abundance = sum(Abundance)) %>%
+  mutate(new_phylum = ifelse(phylum_abundance < 0.01, "<=1% Abundant/Unidentified", Phylum))
+species_familysummary <- species_melted %>% group_by(Family) %>% summarise(family_abundance = sum(Abundance)) %>%
+  mutate(new_family = ifelse(family_abundance < 0.05, "<=5% Abundant/Unidentified", Family))
+species_genussummary <- species_melted %>% group_by(Genus) %>% summarise(genus_abundance = sum(Abundance)) %>%
+  mutate(new_genus = ifelse(genus_abundance < 0.01, "<=1% Abundant/Unidentified", Genus))
+
+species_melted <- merge(species_melted, species_phylumsummary, by = "Phylum", all.x = TRUE) %>%
+  mutate(new_phylum = ifelse(is.na(new_phylum), "<=1% Abundant/Unidentified", new_phylum))
+species_melted <- merge(species_melted, species_familysummary, by = "Family", all.x = TRUE) %>%
+  mutate(new_family = ifelse(is.na(new_phylum), "<=5% Abundant/Unidentified", new_family))
+species_melted <- merge(species_melted, species_genussummary, by = "Genus", all.x = TRUE) %>%
+  mutate(new_genus = ifelse(is.na(new_genus), "<=1% Abundant/Unidentified", new_genus))
 
 species_melted$species <- factor(species_melted$species, levels = c("magna", "dentifera"))
 data_simpson$species <- factor(data_simpson$species, levels = c("magna", "dentifera"))
@@ -186,7 +203,7 @@ species_alphadiv_plot <- ggplot(data_simpson, aes(species, 1/estimate, group = s
                               "Daphnia\ndentifera")) +
   stat_compare_means(method = "t.test", label.y = 15, label.x = 0.75, label = "p.format")
 
-species_composition_plot <- ggplot(species_melted, aes(species, Abundance, fill = Genus)) +
+species_composition_plot <- ggplot(species_melted, aes(species, Abundance, fill = new_genus)) +
   geom_bar(stat = "identity", position = "stack") +
   scale_fill_manual(values = genus_colors) +
   theme(axis.title.x = element_blank()) +
@@ -194,6 +211,7 @@ species_composition_plot <- ggplot(species_melted, aes(species, Abundance, fill 
   scale_x_discrete(labels = c("Daphnia\nmagna",
                               "Daphnia\ndentifera"))
 
+species_composition_plot
 wuniord <- ordinate(data, "PCoA", "unifrac", weighted = TRUE)
 data.rel <- microbiome::transform(data, "compositional")
 data.otu <- microbiome::abundances(data.rel)
@@ -254,14 +272,19 @@ transformed_sp_time <- transform_sample_counts(data_by_sp_time, function(x) x/su
 sp_time_melted <- psmelt(transformed_sp_time) %>%
   select(-c(replicate, X))
 
+species_phylumsummary <- sp_time_melted %>% group_by(Phylum) %>% summarise(phylum_abundance = sum(Abundance)) %>%
+  mutate(new_phylum = ifelse(phylum_abundance < 0.01, "<=1% Abundant/Unidentified", Phylum))
+species_familysummary <- sp_time_melted %>% group_by(Family) %>% summarise(family_abundance = sum(Abundance)) %>%
+  mutate(new_family = ifelse(family_abundance < 0.05, "<=5% Abundant/Unidentified", Family))
+species_genussummary <- sp_time_melted %>% group_by(Genus) %>% summarise(genus_abundance = sum(Abundance)) %>%
+  mutate(new_genus = ifelse(genus_abundance < 0.05, "<=5% Abundant/Unidentified", Genus))
 
-
-sp_time_melted$Phylum[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Phylum[is.na(sp_time_melted$Phylum)] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Family[sp_time_melted$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
-sp_time_melted$Family[is.na(sp_time_melted$Family)] <- "<=5% Abundant/Unidentified"
-sp_time_melted$Genus[sp_time_melted$Abundance <= 0.01] <- "<=1% Abundant/Unidentified"
-sp_time_melted$Genus[is.na(sp_time_melted$Genus)] <- "<=1% Abundant/Unidentified"
+sp_time_melted <- merge(sp_time_melted, species_phylumsummary, by = "Phylum", all.x = TRUE) %>%
+  mutate(new_phylum = ifelse(is.na(new_phylum), "<=1% Abundant/Unidentified", new_phylum))
+sp_time_melted <- merge(sp_time_melted, species_familysummary, by = "Family", all.x = TRUE) %>%
+  mutate(new_family = ifelse(is.na(new_phylum), "<=5% Abundant/Unidentified", new_family))
+sp_time_melted <- merge(sp_time_melted, species_genussummary, by = "Genus", all.x = TRUE) %>%
+  mutate(new_genus = ifelse(is.na(new_genus), "<=5% Abundant/Unidentified", new_genus))
 
 # Alpha diversity
 
@@ -306,16 +329,22 @@ sp_time_melted %>% mutate(identifier = ifelse(time == "day" & species == "magna"
 
 sp_time_melted$identifier <- factor(sp_time_melted$identifier, levels = c("Daphnia\nmagna,\nday", "Daphnia\nmagna,\nnight",
                                                                           "Daphnia\ndentifera,\nday", "Daphnia\ndentifera,\nnight"))
-time_composition_plot <- ggplot(sp_time_melted, aes(Sample, Abundance, fill = Genus)) +
+
+time_composition_plot <- ggplot(sp_time_melted, aes(Sample, Abundance, fill = new_genus)) +
   geom_bar(stat = "identity", position = "stack") +
   scale_fill_manual(values = genus_colors) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank(),
         strip.background = element_blank(),
         strip.placement = "outside", 
-        strip.text.x = element_text(size = 8)) +
+        strip.text.x = element_text(size = 8),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 10),
+        legend.key.size = unit(0.5, "line")) +
   ylab("Relative abundance") +
-  facet_wrap(~identifier, scales = "free_x", ncol = 4, strip.position = "bottom")
+  facet_wrap(~identifier, scales = "free_x", ncol = 4, strip.position = "bottom") +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Genus")
 
 figure_two <- plot_grid(time_alphadiv_plot, 
                     time_composition_plot, 
@@ -331,8 +360,6 @@ ggsave(here("figures", "figure_two.pdf"),
        useDingbats = FALSE)
 
 # Will fix "Genus" and Anova value overlap in Illustrator
-
-
 ```
 
 
