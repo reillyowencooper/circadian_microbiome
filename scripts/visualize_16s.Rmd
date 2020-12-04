@@ -486,7 +486,7 @@ dent_only_plot <- ggplot(dent_otus_allsamples, aes(plotted_genus, Abundance, col
         strip.text.x = element_text(size = 8), 
         legend.position = "none") +
   ylab("Genus Relative Abundance") +
-  stat_compare_means(aes(label = ..p.signif..)) +
+  stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
   coord_flip()
 
 mag_only_plot <- ggplot(mag_otus_allsamples, aes(plotted_genus, Abundance, color = id)) + 
@@ -501,7 +501,7 @@ mag_only_plot <- ggplot(mag_otus_allsamples, aes(plotted_genus, Abundance, color
         strip.text.x = element_text(size = 8), 
         legend.position = "none") +
   ylab("Genus Relative Abundance") +
-  stat_compare_means(aes(label = ..p.signif..)) +
+  stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
   coord_flip()
 
 both_otus_allsamples <- important_otus %>% filter(location == "both")
@@ -605,5 +605,7 @@ pretty_aov_results %>%
     `p-value` = html("<i>p</i>-value")
   ) %>%
   gtsave(here("statistics", "bacteria_genus_anova.pdf"))
+
+
 ```
 
