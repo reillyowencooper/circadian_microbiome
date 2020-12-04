@@ -585,5 +585,25 @@ pretty_all_ttests %>%
     p = html("<i>p</i>")
   ) %>%
   gtsave(here("statistics", "bacteria_genus_ttests.pdf"))
+
+# Anovas for ASVs found in both host species
+both_otus_bygenus <- split(both_otus_allsamples, f = both_otus_allsamples$plotted_genus)
+
+both_anovas <- lapply(both_otus_bygenus, function(df){
+  anovares <- aov(Abundance ~ id, data = df)
+  res <- anova_summary(anovares)
+  res
+})
+
+both_aov_results <- plyr::ldply(both_anovas, data.frame)
+# Prettifying
+pretty_aov_results <- both_aov_results %>% select(.id, DFn, DFd, F, p, ges)
+colnames(pretty_aov_results) <- c("Genus", "DFn", "DFd", "F-value", "p-value", "Effect Size")
+pretty_aov_results %>%
+  gt(rowname_col = "Genus") %>%
+  cols_label(
+    `p-value` = html("<i>p</i>-value")
+  ) %>%
+  gtsave(here("statistics", "bacteria_genus_anova.pdf"))
 ```
 
