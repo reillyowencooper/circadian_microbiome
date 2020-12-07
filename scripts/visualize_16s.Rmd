@@ -488,7 +488,9 @@ important_otus <- important_otus %>% mutate(Genus = ifelse(is.na(Genus), Family,
   mutate(plotted_genus = ifelse(plotted_genus == "Limnohabitans" & location == "magna", paste0(plotted_genus, " ASV 2"), plotted_genus)) %>%
   mutate(plotted_genus = ifelse(plotted_genus == "Limnohabitans" & location == "both", paste0(plotted_genus, " ASV 3"), plotted_genus)) %>%
   mutate(plotted_genus = ifelse(plotted_genus == "Burkholderiaceae" & location == "dentifera", paste0(plotted_genus, " ASV 1"), plotted_genus)) %>%
-  mutate(plotted_genus = ifelse(plotted_genus == "Burkholderiaceae" & location == "magna", paste0(plotted_genus, " ASV 2"), plotted_genus))
+  mutate(plotted_genus = ifelse(plotted_genus == "Burkholderiaceae" & location == "magna", paste0(plotted_genus, " ASV 2"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Emticicia" & location == "magna", paste0(plotted_genus, " ASV 1"), plotted_genus)) %>%
+  mutate(plotted_genus = ifelse(plotted_genus == "Emticicia" & location == "both", paste0(plotted_genus, " ASV 2"), plotted_genus))
 
 dent_otus_allsamples <- important_otus %>% filter(location == "dentifera") %>% filter(species == "dentifera")
 mag_otus_allsamples <- important_otus %>% filter(location == "magna") %>% filter(species == "magna")
@@ -592,9 +594,9 @@ dent_ttest_results <- plyr::ldply(dent_ttests, data.frame)
 all_ttests <- rbind(mag_ttest_results, dent_ttest_results)
 # Prettifying
 pretty_all_ttests <- all_ttests %>% select(.id, statistic, df, p, species)
-colnames(pretty_all_ttests) <- c("genus", "statistic", "df", "p", "species")
+colnames(pretty_all_ttests) <- c("ASV", "statistic", "df", "p", "species")
 pretty_all_ttests %>%
-  gt(rowname_col = "genus") %>%
+  gt(rowname_col = "ASV") %>%
   tab_row_group(
     group = "Daphnia magna",
     rows = species == "magna"
@@ -625,14 +627,27 @@ both_anovas <- lapply(both_otus_bygenus, function(df){
 both_aov_results <- plyr::ldply(both_anovas, data.frame)
 # Prettifying
 pretty_aov_results <- both_aov_results %>% select(.id, DFn, DFd, F, p, ges)
-colnames(pretty_aov_results) <- c("Genus", "DFn", "DFd", "F-value", "p-value", "Effect Size")
+colnames(pretty_aov_results) <- c("ASV", "DFn", "DFd", "F-value", "p-value", "Effect Size")
 pretty_aov_results %>%
-  gt(rowname_col = "Genus") %>%
+  gt(rowname_col = "ASV") %>%
   cols_label(
     `p-value` = html("<i>p</i>-value")
   ) %>%
   gtsave(here("statistics", "bacteria_genus_anova.pdf"))
 
+both_tukeys <- lapply(both_otus_bygenus, function(df) {
+  tukeys <- aov(Abundance ~ id, data = df) %>% tukey_hsd()
+  tukeys
+})
 
+both_tukey_results <- plyr::ldply(both_tukeys, data.frame)
+pretty_tukey_results <- both_tukey_results %>% select(-term)
+colnames(pretty_tukey_results) <- c("ASV", "Group 1", "Group 2", "Null value", "Estimate", "CI (low)", "CI (high)", "p-value (adj.)", "p-value (adj.) significance")
+pretty_tukey_results %>%
+  gt(rowname_col = "ASV") %>%
+  cols_label(
+    `p-value (adj.)` = html("<i>p</i>-value (adj.)")
+  ) %>%
+  gtsave(here("statistics", "bacteria_both_tukey.pdf"))
 ```
 
