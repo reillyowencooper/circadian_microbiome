@@ -105,6 +105,40 @@ data@sam_data$Sample <- str_replace_all(data@sam_data$Sample ,
                                    "13C07" = "DD_N7","13C08" = "DD_N8","13C09" = "DD_N9"))
 ```
 
+Running PCoA on each of the four sample sets individually to check for outlier samples based on beta diversity.
+```{r outlier_check}
+magna_day <- subset_samples(data, id == "day_magna")
+magna_night <- subset_samples(data, id == "night_magna")
+dentifera_day <- subset_samples(data, id == "day_dentifera")
+dentifera_night <- subset_samples(data, id == "night_dentifera")
+
+mdord <- ordinate(magna_day, "PCoA", "unifrac", weighted = TRUE)
+mnord <- ordinate(magna_night, "PCoA", "unifrac", weighted = TRUE)
+ddord <- ordinate(dentifera_day, "PCoA", "unifrac", weighted = TRUE)
+dnord <- ordinate(dentifera_night, "PCoA", "unifrac", weighted = TRUE)
+
+mdplot <- plot_ordination(magna_day, mdord, color = "Sample") +
+  geom_point(size = 2)
+mnplot <- plot_ordination(magna_night, mnord, color = "Sample") +
+  geom_point(size = 2)
+ddplot <- plot_ordination(dentifera_day, ddord, color = "Sample") +
+  geom_point(size = 2)
+dnplot <- plot_ordination(dentifera_night, dnord, color = "Sample") +
+  geom_point(size = 2)
+
+ord_plots <- plot_grid(mdplot, mnplot,
+          ddplot, dnplot,
+          ncol = 2, nrow = 2)
+
+ggsave(here("figures", "supplementary_figure_one.pdf"), ord_plots, units = "in", width = 7.5, height = 7.5, dpi = 300, useDingbats = FALSE)
+```
+
+Sample DD_D10 is much different than the rest of the _Daphnia dentifera_ day samples and the samples in general, so we are considering it an outlier. Even though it may not look like it at first glance, the X-axis is double the width of the other sample sets and this sample is significantly far to the right (0.1, compared to every other sample at 0.05 or less). Therefore, we're removing it from the dataset for subsequent analyses.
+```{r}
+data <- subset_samples(data, Sample != "DD_D10")
+```
+
+
 Creating a melted dataframe of the data, and reducing low abundance reads for clarity.
 ```{r melt}
 data_transformed <- transform_sample_counts(data, function(x) x/sum(x))
@@ -120,6 +154,7 @@ no_low_abundance$Phylum[is.na(no_low_abundance$Phylum)] <- "<=1% Abundant/Uniden
 no_low_abundance$Family[no_low_abundance$Abundance <= 0.05] <- "<=5% Abundant/Unidentified"
 no_low_abundance$Family[is.na(no_low_abundance$Family)] <- "<=5% Abundant/Unidentified"
 ```
+
 
 Checking alpha diversity using DivNet instead of standard phyloseq alpha diversity measures. DivNet provides more accurate measures of diversity by accounting for unobserved taxa and random sampling from a larger community.
 ```{r divnet_alphadiv}
@@ -140,7 +175,8 @@ data_shannon <- dv_data$shannon %>% summary %>% select(sample_names, estimate) %
 data_simpson <- dv_data$simpson %>% summary %>% select(sample_names, estimate) %>%
   mutate(id = data@sam_data$id) %>%
   mutate(species = data@sam_data$species) %>%
-  mutate(time = data@sam_data$time)
+  mutate(time = data@sam_data$time) %>%
+  mutate(invsimpson = 1/estimate)
 
 data_shannon$id <- factor(data_shannon$id, 
                           levels = c("day_dentifera", 
@@ -156,8 +192,6 @@ data_simpson$id <- factor(data_shannon$id,
 
 magnasimp <- data_simpson %>% filter(species == "magna") %>% mutate(invsimp = 1/estimate)
 dentsimp <- data_simpson %>% filter(species == "dentifera") %>% mutate(invsimp = 1/estimate)
-
-mean(dentsimp$invsimp)
 ```
 
 Figure 1.
@@ -289,6 +323,7 @@ sp_time_melted <- merge(sp_time_melted, species_genussummary, by = "Genus", all.
 # Alpha diversity
 
 # ANOVA and t-tests for differences among species and times for alpha diversity
+data_simpson <- data_simpson[-39,]
 time_spp_aov <- aov(invsimpson ~ species*time, data = data_simpson)
 summary(time_spp_aov)
 
