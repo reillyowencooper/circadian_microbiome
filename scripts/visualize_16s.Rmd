@@ -128,7 +128,8 @@ dnplot <- plot_ordination(dentifera_night, dnord, color = "Sample") +
 
 ord_plots <- plot_grid(mdplot, mnplot,
           ddplot, dnplot,
-          ncol = 2, nrow = 2)
+          ncol = 2, nrow = 2, 
+          labels = "auto")
 
 ggsave(here("figures", "supplementary_figure_one.pdf"), ord_plots, units = "in", width = 7.5, height = 7.5, dpi = 300, useDingbats = FALSE)
 ```
@@ -595,7 +596,7 @@ both_with_blankspace <- plot_grid(NULL, both_only_plot, NULL, rel_widths = c(.25
 
 complete_asv_plot <- plot_grid(species_specific, both_with_blankspace, nrow = 2)
 
-ggsave(here("figures", "figure_three_revamped.pdf"), 
+ggsave(here("figures", "figure_three.pdf"), 
        complete_asv_plot, 
        units = "in", 
        width = 8, 
