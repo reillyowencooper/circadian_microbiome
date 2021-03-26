@@ -782,7 +782,9 @@ ggsave(here("figures", "figure_three.pdf"),
        dpi = 300, 
        useDingbats = FALSE)
 
-# TODO: Making output table
+# Making output table - even though this says by Genus, since there are only single ASVs associated
+# with each genus (with the exception of renamed ASVs, which are now grouped separately), this
+# tests each ASV individually
 mag_otus_bygenus <- split(mag_otus_allsamples, f = mag_otus_allsamples$plotted_genus)
 
 mag_ttests <- lapply(mag_otus_bygenus, function(df){
@@ -829,39 +831,49 @@ pretty_all_ttests %>%
   ) %>%
   gtsave(here("statistics", "bacteria_genus_ttests.pdf"))
 
-# Anovas for ASVs found in both host species
-both_otus_bygenus <- split(both_otus_allsamples, f = both_otus_allsamples$plotted_genus)
+# T-tests for ASVs found in both host species
+both_magna_bygenus <- split(both_magna, f = both_magna$plotted_genus)
 
-both_anovas <- lapply(both_otus_bygenus, function(df){
-  anovares <- aov(Abundance ~ id, data = df)
-  res <- anova_summary(anovares)
+both_magna_ttests <- lapply(both_magna_bygenus, function(df){
+  res <- t_test(Abundance ~ id, data = df)
+  res <- mutate(res, species = "magna") %>%
+    add_significance()
   res
 })
 
-both_aov_results <- plyr::ldply(both_anovas, data.frame)
-# Prettifying
-pretty_aov_results <- both_aov_results %>% select(.id, DFn, DFd, F, p, ges)
-colnames(pretty_aov_results) <- c("ASV", "DFn", "DFd", "F-value", "p-value", "Effect Size")
-pretty_aov_results %>%
-  gt(rowname_col = "ASV") %>%
-  cols_label(
-    `p-value` = html("<i>p</i>-value")
-  ) %>%
-  gtsave(here("statistics", "bacteria_genus_anova.pdf"))
+magna_ttest_results <- plyr::ldply(both_magna_ttests, data.frame)
 
-both_tukeys <- lapply(both_otus_bygenus, function(df) {
-  tukeys <- aov(Abundance ~ id, data = df) %>% tukey_hsd()
-  tukeys
+both_dentifera_bygenus <- split(both_dentifera, f = both_dentifera$plotted_genus)
+
+both_dentifera_ttests <- lapply(both_dentifera_bygenus, function(df){
+  res <- t_test(Abundance ~ id, data = df)
+  res <- mutate(res, species = "dentifera") %>%
+    add_significance()
+  res
 })
 
-both_tukey_results <- plyr::ldply(both_tukeys, data.frame)
-pretty_tukey_results <- both_tukey_results %>% select(-term)
-colnames(pretty_tukey_results) <- c("ASV", "Group 1", "Group 2", "Null value", "Estimate", "CI (low)", "CI (high)", "p-value (adj.)", "p-value (adj.) significance")
-pretty_tukey_results %>%
+dentifera_ttest_results <- plyr::ldply(both_dentifera_ttests, data.frame)
+
+both_species_ttest_results <- rbind(magna_ttest_results, dentifera_ttest_results)
+
+# Prettifying
+pretty_both_results <- both_species_ttest_results %>%
+  select(.id, statistic, df, p, species)
+
+colnames(pretty_both_results) <- c("ASV", "Statistic", "df", "p", "species")
+
+pretty_both_results <- pretty_both_results %>%
+  mutate(species = ifelse(species == "magna", "Daphnia magna", "Daphnia dentifera"),
+         p = round(p, 5))
+
+pretty_both_results %>%
+  group_by(species) %>%
+  arrange(desc(df)) %>%
   gt(rowname_col = "ASV") %>%
   cols_label(
-    `p-value (adj.)` = html("<i>p</i>-value (adj.)")
-  ) %>%
-  gtsave(here("statistics", "bacteria_both_tukey.pdf"))
+    Statistic = "Statistic",
+    df = "Df",
+    p = html("<i>p</i>")) %>%
+  gtsave(here("statistics", "bacteria_asv_both_hosts_ttest.pdf"))
 ```
 
