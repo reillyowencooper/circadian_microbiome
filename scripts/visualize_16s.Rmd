@@ -18,6 +18,7 @@ library(DivNet)
 library(parallel)
 library(microbiome)
 library(gt)
+library(patchwork)
 
 theme_set(theme_cowplot(font_size = 12))
 
@@ -323,19 +324,24 @@ sp_time_melted <- merge(sp_time_melted, species_genussummary, by = "Genus", all.
 
 # Alpha diversity
 
-# ANOVA and t-tests for differences among species and times for alpha diversity
+# T-tests for differences between times for each species
 data_simpson <- data_simpson[-39,]
-time_spp_aov <- aov(invsimpson ~ species*time, data = data_simpson)
-summary(time_spp_aov)
+magna_time <- data_simpson %>% filter(species == "magna")
+dentifera_time <- data_simpson %>% filter(species == "dentifera")
 
-time_spp_tukeyhsd <- time_spp_aov %>% tukey_hsd()
-time_spp_tukeyhsd %>% write_csv(here("statistics", "species_time_tukeyhsd.csv"))
-comparisons <- time_spp_tukeyhsd %>% 
-  filter((group1 == "magna:day" & group2 == "magna:night") | (group1 == "dentifera:day" & group2 == "dentifera:night")) %>%
-  mutate(group1 = gsub("magna:day", "day_magna", group1),
-         group1 = gsub("dentifera:day", "day_dentifera", group1),
-         group2 = gsub("magna:night", "night_magna", group2),
-         group2 = gsub("dentifera:night", "night_dentifera", group2))
+magna_t_test <- magna_time %>% 
+  t_test(invsimpson ~ time) %>%
+  add_significance() %>%
+  mutate(group1 = gsub("day", "day_magna", group1),
+         group2 = gsub("night", "night_magna", group2))
+dentifera_t_test <- dentifera_time %>%
+  t_test(invsimpson ~ time) %>%
+  add_significance() %>%
+  mutate(group1 = gsub("day", "day_dentifera", group1),
+         group2 = gsub("night", "night_dentifera", group2))
+
+write_csv(magna_t_test, here("statistics", "magna_time_ttest.csv"))
+write_csv(dentifera_t_test, here("statistics", "dentifera_time_ttest.csv"))
 
 data_simpson$id <- factor(data_simpson$id, 
                           levels = c("day_magna", 
@@ -343,21 +349,36 @@ data_simpson$id <- factor(data_simpson$id,
                                      "day_dentifera", 
                                      "night_dentifera"))
 
-time_alphadiv_plot <- ggplot(data_simpson, aes(id, 1/estimate, group = id, color = id)) + 
+magna_time_alphadiv_plot <- ggplot(magna_time, aes(id, invsimpson, group = id, color = id)) +
   geom_violin() +
   geom_jitter(height = 0, width = 0.05, alpha = 0.5, size = 2) +
   scale_color_manual(values = id_colors) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_text(size = 8),
         legend.position = "none") +
+  stat_pvalue_manual(magna_t_test, label = "p = {p}", y.position = 16) +
   scale_x_discrete(labels = c("Daphnia\nmagna,\nday",
-                              "Daphnia\nmagna,\nnight",
-                              "Daphnia\ndentifera,\nday",
-                              "Daphnia\ndentifera,\nnight")) +
-  annotate("text", x = 1, y = 15, label = "Anova, p < 2e-16") +
-  stat_pvalue_manual(comparisons, label = "p.adj", y.position = c(18, 18)) +
-  ylab("Inverse Simpson Index Estimate")
+                              "Daphnia\nmagna,\nnight")) +
+  ylab("Inverse Simpson Index Estimate") + ylim(0, 18)
 
+dentifera_time_alphadiv_plot <- ggplot(dentifera_time, aes(id, invsimpson, group = id, color = id)) +
+  geom_violin() +
+  geom_jitter(height = 0, width = 0.05, alpha = 0.5, size = 2) +
+  scale_color_manual(values = id_colors) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "none") +
+  stat_pvalue_manual(dentifera_t_test, label = "p = {p}", y.position = 16) +
+  scale_x_discrete(labels = c("Daphnia\ndentifera,\nday",
+                              "Daphnia\ndentifera,\nnight")) +
+  ylab("Inverse Simpson Index Estimate") + ylim(0, 18)
+
+time_alpha_div_plot <- magna_time_alphadiv_plot + dentifera_time_alphadiv_plot
+time_alpha_div_plot
 # Composition, genus level
 sp_time_melted %>% mutate(identifier = ifelse(time == "day" & species == "magna", "Daphnia\nmagna,\nday", 
                                               ifelse(time == "day" & species == "dentifera", "Daphnia\ndentifera,\nday", 
@@ -376,28 +397,166 @@ time_composition_plot <- ggplot(sp_time_melted, aes(Sample, Abundance, fill = ne
         strip.text.x = element_text(size = 8),
         legend.text = element_text(size = 8),
         legend.title = element_text(size = 10),
-        legend.key.size = unit(0.5, "line")) +
+        legend.key.size = unit(0.5, "line"),
+        legend.position = "bottom") +
   ylab("Relative abundance") +
   facet_wrap(~identifier, scales = "free_x", ncol = 4, strip.position = "bottom") +
-  guides(fill = guide_legend(ncol = 1)) + 
+  guides(fill = guide_legend(ncol = 4)) + 
   labs(fill = "Genus")
-
-figure_two <- plot_grid(time_alphadiv_plot, 
-                    time_composition_plot, 
-                    nrow = 1, rel_widths = c(0.5, 1),
-                    align = "hv", labels = "auto")
-
-ggsave(here("figures", "figure_two.pdf"), 
-       figure_two, 
-       units = "in", 
-       width = 8, 
-       height = 4, 
-       dpi = 300, 
-       useDingbats = FALSE)
 
 # Will fix "Genus" and Anova value overlap in Illustrator
 ```
 
+Adding in feeding rate data to figure 2 - this chunk written by Alaina Pfenning-Butterworth
+```{r}
+feeding_rates <- read.csv(here("data", "feeding_rate.csv"))
+
+## Means of the controls  - these means for each treatment (i.e., plate_control) are then used in the calculation below
+summary_data <- feeding_rates %>%
+  group_by(Plate_control) %>%
+  mutate(control_mean = mean(Control_fluor, na.rm = T)) %>%
+  select(Plate_control, control_mean) %>%
+  distinct() %>% as.data.frame()
+
+#remove extra row
+summary_data  <- summary_data[!(summary_data$Plate_control == ""),]
+
+#match control mean with plate treatment
+map = setNames(summary_data$control_mean,summary_data$Plate_control)
+feeding_rates$control_mean <- map[as.character(feeding_rates$Plate)]
+
+##subset dentifera and magna because their feeding rates were run at different volumes
+
+#magna
+magna<-subset(feeding_rates, Species == "magna")
+
+#dentifera
+dentifera<-subset(feeding_rates, Species == "dentifera")
+
+##Run magna
+
+v = 30
+## volume, mL
+t = 6  
+##time, hours
+k= magna$control_mean/magna$Flour_reading
+##difference in feeding compared to control
+
+##calculate feeding rate (Sarnelle and Wilson) #ml/hr
+magna$fr_sw <- log(k) * (v/t)
+
+
+##Run dentifera
+
+v2 = 10
+##time, hours
+l= dentifera$control_mean/dentifera$Flour_reading
+##difference in feeding compared to control
+
+##calculate feeding rate (Sarnelle and Wilson) #ml/hr
+dentifera$fr_sw <- log(l) * (v2/t)
+
+
+##Put the data frames back together
+g<-rbind(dentifera, magna)
+
+
+##calcualte mean feeding rates per animal (keep rate > 0)
+animal_mean <- g %>%
+  filter(fr_sw > 0) %>%
+  group_by(Time, Species, Animal) %>%
+  summarise(length=mean(Size_mm, na.rm=TRUE),
+            body_size = length^2,
+            fr_sw = mean(fr_sw),
+            lc_fr = fr_sw/length,
+            sc_fr = fr_sw/body_size) %>%
+  mutate(group = paste(Species, Time, sep = "-"))
+
+
+# D. dentifera paired t-test
+dentifera_feeding <- animal_mean %>% filter(Species == "dentifera") 
+
+d.day<-subset(dentifera_feeding, Time == "Day")
+d.night<-subset(dentifera_feeding, Time == "Night")
+dentifera_feeding_ttest <- t.test(d.day$sc_fr, d.night$sc_fr, paired = TRUE, alternative = "two.sided")
+dentifera_feeding_ttest_df <- data.frame(".y" = "sc_fr",
+                                         "group1" = "dentifera-Day",
+                                         "group2" = "dentifera-Night",
+                                         "statistic" = -5.7132,
+                                         "df" = 13,
+                                         "p" = 7.134e-05)
+
+
+# D. magna paired t-test
+magna_feeding <- animal_mean %>% filter(Species == "magna") 
+m.day<-subset(magna_feeding, Time == "Day")
+m.night<-subset(magna_feeding, Time == "Night")
+magna_feeding_ttest <- t.test(m.day$sc_fr, m.night$sc_fr, paired = TRUE, alternative = "two.sided")
+magna_feeding_pval <- round(magna_feeding_ttest$p.value, 6)
+magna_feeding_ttest_df <- data.frame(".y" = "sc_fr",
+                                         "group1" = "magna-Day",
+                                         "group2" = "magna-Night",
+                                         "statistic" = -3.1412,
+                                         "df" = 13,
+                                         "p" = 0.007803)
+
+# Visualize
+time_palette <- c("dentifera-Day" = "#76A08A",
+               "dentifera-Night" = "#27223C",
+               "magna-Day" = "#E6A2C5",
+               "magna-Night" = "#A35E60")
+
+dentifera_feeding$group <- factor(dentifera_feeding$group, 
+                                  levels = c("dentifera-Day", "dentifera-Night"))
+magna_feeding$group <- factor(magna_feeding$group, 
+                                  levels = c("magna-Day", "magna-Night"))
+
+magna_feeding_plot <- ggplot(magna_feeding, aes(group, sc_fr, group = group, color = group)) +
+  geom_violin() +
+  geom_jitter(width = 0.05, height = 0, alpha = 0.5, size = 2) +
+  scale_color_manual(values = time_palette) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8),
+        legend.position = "none") +
+  stat_pvalue_manual(magna_feeding_ttest_df, label = "p = {p}", y = 1)  +
+  scale_x_discrete(labels = c("Daphnia\nmagna,\nday",
+                              "Daphnia\nmagna,\nnight")) +
+  ylab("Size-corrected feeding rate\n(ml/hr/mm2)")
+
+dentifera_feeding_plot <- ggplot(dentifera_feeding, aes(group, sc_fr, group = group, color = group)) +
+  geom_violin() +
+  geom_jitter(width = 0.05, height = 0, alpha = 0.5, size = 2) +
+  scale_color_manual(values = time_palette) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        legend.position = "none") +
+  stat_pvalue_manual(dentifera_feeding_ttest_df, label = "p = {p}", y = 1)  +
+  scale_x_discrete(labels = c("Daphnia\ndentifera,\nday",
+                              "Daphnia\ndentifera,\nnight"))
+
+time_feeding_rate_plot <- magna_feeding_plot + dentifera_feeding_plot
+time_feeding_rate_plot
+```
+Creating figure 2
+```{r}
+(time_alpha_div_plot + time_feeding_rate_plot) / time_composition_plot
+
+figure_two <- plot_grid(plot_grid(time_alpha_div_plot,
+                    time_feeding_rate_plot, nrow = 1, align = "hv", labels = c("a", "b")),
+          time_composition_plot, ncol = 1, labels = c("", "c"), rel_heights = c(0.85, 1))
+
+ggsave(here("figures", "figure_two.pdf"), 
+       figure_two, 
+       units = "in", 
+       width = 7.5, 
+       height = 7.5, 
+       dpi = 300, 
+       useDingbats = FALSE)
+```
 
 Identifying core microbiota between host species.
 ```{r core, warning=FALSE}
@@ -549,8 +708,8 @@ dent_only_plot <- ggplot(dent_otus_allsamples, aes(plotted_genus, Abundance, col
   theme(axis.title.y = element_blank(),
         strip.background = element_blank(),
         strip.text.x = element_text(size = 8), 
+        axis.title.x = element_blank(),
         legend.position = "none") +
-  ylab("Genus Relative Abundance") +
   stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
   coord_flip()
 
@@ -564,6 +723,7 @@ mag_only_plot <- ggplot(mag_otus_allsamples, aes(plotted_genus, Abundance, color
   theme(axis.title.y = element_blank(),
         strip.background = element_blank(),
         strip.text.x = element_text(size = 8), 
+        axis.title.x = element_blank(),
         legend.position = "none") +
   ylab("Genus Relative Abundance") +
   stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
@@ -574,27 +734,45 @@ both_otus_meanabund <- both_otus_allsamples %>% group_by(plotted_genus) %>% summ
 both_levels <- as.list(both_otus_meanabund$plotted_genus)
 both_otus_allsamples$plotted_genus <- factor(both_otus_allsamples$plotted_genus, levels = both_levels)
 
-both_only_plot <- ggplot(both_otus_allsamples, aes(plotted_genus, Abundance, color = id)) + 
-  geom_boxplot(outlier.shape = NA) + 
-  geom_jitter(alpha = 0.5, position = position_jitterdodge()) + 
-  scale_color_manual(values = id_colors, 
-                     labels = c("Daphnia dentifera,\nday",
-                                "Daphnia dentifera,\nnight",
-                                "Daphnia magna,\nday",
+both_magna <- both_otus_allsamples %>% filter(species == "magna")
+both_dentifera <- both_otus_allsamples %>% filter(species == "dentifera")
+
+both_magna_plot <- ggplot(both_magna, aes(plotted_genus, Abundance, color = id)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.5, position = position_jitterdodge()) +
+  scale_color_manual(values = id_colors,
+                     labels = c("Daphnia magna,\nday",
                                 "Daphnia magna,\nnight"),
                      name = "") +
   theme(axis.title.y = element_blank(),
         strip.background = element_blank(),
-        strip.text.x = element_text(size = 8)) +
-  ylab("Genus Relative Abundance") +
-  stat_compare_means(method = "anova", aes(label = ..p.signif..)) +
+        strip.text.x = element_text(size = 8),
+        legend.position = "none") +
+  ylab("Relative Abundance") +
+  stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
+  coord_flip()
+
+both_dentifera_plot <- ggplot(both_dentifera, aes(plotted_genus, Abundance, color = id)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.5, position = position_jitterdodge()) +
+  scale_color_manual(values = id_colors,
+                     labels = c("Daphnia dentifera,\nday",
+                                "Daphnia dentifera,\nnight"),
+                     name = "") +
+  theme(axis.title.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8),
+        legend.position = "none") +
+  ylab("Relative Abundance") +
+  stat_compare_means(method = "t.test", aes(label = ..p.signif..)) +
   coord_flip()
 
 
 species_specific <- plot_grid(mag_only_plot, dent_only_plot, labels = "auto", align = "h")
-both_with_blankspace <- plot_grid(NULL, both_only_plot, NULL, rel_widths = c(.25, 1, .1), labels = c("", "c", ""), nrow = 1)
+both_species <- plot_grid(both_magna_plot, both_dentifera_plot, labels = c("c", "d"), nrow = 1, align = "h")
 
-complete_asv_plot <- plot_grid(species_specific, both_with_blankspace, nrow = 2)
+complete_asv_plot <- plot_grid(mag_only_plot, dent_only_plot, both_magna_plot, both_dentifera_plot, labels = "auto", align = "hv")
+
 
 ggsave(here("figures", "figure_three.pdf"), 
        complete_asv_plot, 

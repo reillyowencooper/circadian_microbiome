@@ -32,4 +32,4 @@ Developer Github
 
 Data is stored in the *data* directory. A pre-processed .rds object that is the phyloseq output of the *process_16s.Rmd* script is included as *processed_16s_all.rds*, if you want to skip that entire step. Otherwise, you will need to download the dada2-formatted GTDB database, located [here](https://zenodo.org/record/3951383) to appropriately identify ASV taxonomy. 
 
-I have not included the raw 16S read data in this project as they take up more space than Github allows, but will be adding the accession numbers once this project is submitted to NCBI.
+Raw 16S data is available on NCBI under BioProject PRJNA715454.
